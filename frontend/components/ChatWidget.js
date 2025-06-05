@@ -2,10 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import ChatMessage from './ChatMessage';
 import styles from '../styles/ChatWidget.module.css';
 
-// Paths to your public assets
 const BOT_AVATAR = "/bot-avatar.png";
 const USER_AVATAR = "/user-avatar.png";
 const NOTIF_SOUND = "/notification.mp3";
+
+// Use environment variable with fallback
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const EMOJIS = ["😀","😂","🥲","😎","😍","🥳","😇","😱","🙏","🔥","🎉","👍","👀","🍕","❤️"];
@@ -32,16 +33,15 @@ export default function ChatWidget() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const inputRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isBotTyping]);
 
-  // Persist messages/darkmode to localStorage
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("chat_messages", JSON.stringify(messages));
@@ -54,14 +54,12 @@ export default function ChatWidget() {
     }
   }, [darkMode]);
 
-  // Focus input on open/maximize
   useEffect(() => {
     if (!minimized && isOpen) {
       setTimeout(() => { inputRef.current?.focus(); }, 200);
     }
   }, [minimized, isOpen, showEmojiPicker]);
 
-  // Keyboard Shortcuts
   useEffect(() => {
     const handler = (e) => {
       if (e.key === "ArrowUp" && !inputText && messages.length > 0) {
@@ -85,9 +83,8 @@ export default function ChatWidget() {
     return () => window.removeEventListener('keydown', handler);
   });
 
-  // Text-to-speech (bot)
   const speak = (text) => {
-    if ('speechSynthesis' in window) {
+    if ('speechSynthesis' in window && process.env.NEXT_PUBLIC_ENABLE_SPEECH === 'true') {
       const utter = new window.SpeechSynthesisUtterance(text);
       utter.lang = 'en-US';
       utter.rate = 1.02;
@@ -95,44 +92,46 @@ export default function ChatWidget() {
     }
   };
 
-  // Sound notification
   const playSound = () => {
-    const snd = document.getElementById('chatSound');
-    if (snd) { snd.currentTime = 0; snd.play().catch(() => {}); }
+    if (process.env.NEXT_PUBLIC_ENABLE_SOUND === 'true') {
+      const snd = document.getElementById('chatSound');
+      if (snd) { 
+        snd.currentTime = 0; 
+        snd.play().catch(() => {}); 
+      }
+    }
   };
 
-  // Clear conversation
   const clearChat = () => {
     setMessages([]);
     setInputText('');
     setEditing(false);
+    setError(null);
     if (typeof window !== 'undefined') {
       localStorage.removeItem('chat_messages');
     }
   };
 
-  // Minimize/Expand
   const handleMinimize = () => setMinimized(true);
   const handleExpand = () => {
     setMinimized(false);
     setTimeout(() => inputRef.current?.focus(), 150);
   };
 
-  // Emoji insert
   const insertEmoji = (emoji) => {
     setInputText(inputText + emoji);
     setShowEmojiPicker(false);
     inputRef.current?.focus();
   };
 
-  // Send message
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (!inputText && !inputImage) return;
+    
     setLoading(true);
     setIsBotTyping(true);
+    setError(null);
 
-    // For editing, remove last user message
     let newMsgs = editing
       ? messages.slice(0, messages.length - 1)
       : [...messages];
@@ -154,53 +153,71 @@ export default function ChatWidget() {
     formData.append('query', inputText);
     if (inputImage) formData.append('image', inputImage);
 
-    setTimeout(async () => {
-      try {
-        const res = await fetch(`${API_URL}/chat`, { method: 'POST', body: formData });
-        const data = await res.json();
-        setTimeout(() => {
-          const newBotMsg = {
-            sender: 'bot',
-            text: data.message || '',
-            images: [],
-            timestamp: new Date().toISOString(),
-            avatar: BOT_AVATAR
-          };
-          setMessages(prev => [...prev, newBotMsg]);
-          setIsBotTyping(false);
-          setLoading(false);
-          playSound();
-          speak(data.message || '');
-        }, 700);
-      } catch (err) {
-        setMessages(prev => [...prev, {
+    try {
+      // Use relative URL which will be proxied by Next.js
+      const res = await fetch('/api/chat', { 
+        method: 'POST', 
+        body: formData 
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      
+      setTimeout(() => {
+        const newBotMsg = {
           sender: 'bot',
-          text: 'Error querying backend.',
+          text: data.message || 'I received your message but couldn\'t generate a response.',
           images: [],
           timestamp: new Date().toISOString(),
-          avatar: BOT_AVATAR
-        }]);
+          avatar: BOT_AVATAR,
+          sources: data.sources || [],
+          messageId: data.message_id
+        };
+        setMessages(prev => [...prev, newBotMsg]);
         setIsBotTyping(false);
         setLoading(false);
         playSound();
-      }
-    }, 500);
+        speak(data.message || '');
+      }, 700);
+      
+    } catch (err) {
+      console.error('Chat error:', err);
+      setError(err.message);
+      setMessages(prev => [...prev, {
+        sender: 'bot',
+        text: 'I apologize, but I\'m experiencing technical difficulties. Please try again.',
+        images: [],
+        timestamp: new Date().toISOString(),
+        avatar: BOT_AVATAR,
+        error: true
+      }]);
+      setIsBotTyping(false);
+      setLoading(false);
+      playSound();
+    }
+
     setInputText('');
     setInputImage(null);
   };
 
-  // Loading placeholder (shimmer)
   const renderLoading = () => (
     <div className={styles.botMsg}>
       <div className={`${styles.botBubble} ${styles.shimmer}`}></div>
     </div>
   );
 
-  // Floating FAB
   if (!isOpen) {
     return (
       <>
-        <button className={styles.fabChatOpen} onClick={() => setIsOpen(true)} title="Open chat">
+        <button 
+          className={styles.fabChatOpen} 
+          onClick={() => setIsOpen(true)} 
+          title="Open chat"
+          aria-label="Open AI Assistant Chat"
+        >
           💬
         </button>
         <audio id="chatSound" src={NOTIF_SOUND} preload="auto"></audio>
@@ -216,7 +233,7 @@ export default function ChatWidget() {
           <span className={styles.avatar}>
             <img src={BOT_AVATAR} alt="bot" width="32" height="32" style={{borderRadius: '50%'}} />
           </span>
-          AI Assistant
+          {process.env.NEXT_PUBLIC_APP_NAME || 'AI Assistant'}
         </span>
         <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
           <button className={styles.iconBtn} title="Dark mode" onClick={() => setDarkMode(dm => !dm)}>
@@ -230,6 +247,11 @@ export default function ChatWidget() {
       {!minimized && (
       <>
         <div className={styles.chatHistory}>
+          {error && (
+            <div className={styles.errorMessage}>
+              <p>⚠️ Connection Error: {error}</p>
+            </div>
+          )}
           {messages.map((msg, idx) => (
             <ChatMessage
               key={idx}
@@ -238,6 +260,7 @@ export default function ChatWidget() {
               images={msg.images}
               timestamp={msg.timestamp}
               avatar={msg.avatar}
+              sources={msg.sources}
               animate
             />
           ))}
@@ -284,17 +307,20 @@ export default function ChatWidget() {
             onChange={e => setInputText(e.target.value)}
             className={styles.textInput}
             autoFocus
+            disabled={loading}
           />
           <input
             type="file"
             accept="image/*"
             onChange={e => setInputImage(e.target.files[0] || null)}
             className={styles.fileInput}
+            disabled={loading}
           />
           <button 
             type="submit" 
             className={styles.sendButton}
             aria-label="Send"
+            disabled={loading || (!inputText && !inputImage)}
           >
             <span className={styles.plane}>
               <svg height="22" width="22" viewBox="0 0 22 22" fill="none">

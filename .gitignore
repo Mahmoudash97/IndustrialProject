@@ -1,16 +1,58 @@
-# Node & Next.js
+# Dependencies
 node_modules/
+*/node_modules/
+
+# Production builds
 .next/
 out/
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.staging
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Environment & Secrets
-.env
-.env.*
+# Uploads
+uploads/
+temp/
+
+# Testing
+coverage/
+.coverage
+.pytest_cache/
+
+# Cache
+.cache/
+.parcel-cache/
