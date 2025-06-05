@@ -1,4 +1,16 @@
+# Node & Next.js
 node_modules/
-.env
+.next/
+out/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
 .DS_Store
-*.log
+Thumbs.db
+
+# Environment & Secrets
+.env
+.env.*

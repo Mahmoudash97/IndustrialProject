@@ -5,11 +5,20 @@ export default function ChatMessage({ sender, text, images, timestamp, avatar, a
   const bubbleClass = isUser ? styles.userBubble : styles.botBubble;
   const containerClass = isUser ? styles.userMsg : styles.botMsg;
   const fadeClass = animate ? styles.fadeIn : '';
+  const avatarClass = isUser ? styles.userAvatar : styles.botAvatar;
+  const tailClass = isUser ? styles.bubbleTailUser : styles.bubbleTailBot;
 
   return (
     <div className={`${containerClass} ${fadeClass}`}>
-      <div className={isUser ? styles.userAvatar : styles.botAvatar}>
-        <img src={avatar} alt={`${sender} avatar`} width="32" height="32" style={{borderRadius: '50%'}} />
+      <div className={avatarClass}>
+        <img
+          src={avatar}
+          alt={`${sender} avatar`}
+          width="32"
+          height="32"
+          style={{ borderRadius: '50%', objectFit: 'cover', background: '#fff' }}
+          onError={e => { e.target.onerror = null; e.target.src = '/bot-avatar.png'; }}
+        />
       </div>
       <div className={bubbleClass}>
         {text && <p className={styles.msgText}>{text}</p>}
@@ -21,7 +30,7 @@ export default function ChatMessage({ sender, text, images, timestamp, avatar, a
         <span className={styles.timestamp}>
           {timestamp && new Date(timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
         </span>
-        <span className={isUser ? styles.bubbleTailUser : styles.bubbleTailBot}></span>
+        <span className={tailClass}></span>
       </div>
     </div>
   );

@@ -2,34 +2,33 @@ import { useState, useRef, useEffect } from 'react';
 import ChatMessage from './ChatMessage';
 import styles from '../styles/ChatWidget.module.css';
 
+// Paths to your public assets
+const BOT_AVATAR = "/bot-avatar.png";
+const USER_AVATAR = "/user-avatar.png";
+const NOTIF_SOUND = "/notification.mp3";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-const BOT_AVATAR = "/bot-avatar.png"; // Place your bot/company logo or emoji
-const USER_AVATAR = "/user-avatar.png"; // Use a placeholder or user-uploaded photo
-
-// Simple emoji picker data
 const EMOJIS = ["😀","😂","🥲","😎","😍","🥳","😇","😱","🙏","🔥","🎉","👍","👀","🍕","❤️"];
 
-export default function ChatWidget({ onClose }) {
-  // State management
+export default function ChatWidget() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [messages, setMessages] = useState(() => {
-    // Restore messages from localStorage on load
-    if (typeof window !== 'undefined') {
-      const m = localStorage.getItem('chat_messages');
-      return m ? JSON.parse(m) : [];
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chat_messages");
+      return saved ? JSON.parse(saved) : [];
     }
     return [];
   });
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState("");
   const [inputImage, setInputImage] = useState(null);
   const [isBotTyping, setIsBotTyping] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('chat_darkmode') === 'true';
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("chat_darkmode") === "true";
     }
     return false;
   });
-  const [minimized, setMinimized] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -37,34 +36,34 @@ export default function ChatWidget({ onClose }) {
   const inputRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  // --- Auto-scroll on new messages
+  // Scroll to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isBotTyping]);
 
-  // --- Persist chat & darkMode to localStorage
+  // Persist messages/darkmode to localStorage
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('chat_messages', JSON.stringify(messages));
+    if (typeof window !== "undefined") {
+      localStorage.setItem("chat_messages", JSON.stringify(messages));
     }
   }, [messages]);
+  
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('chat_darkmode', darkMode ? 'true' : 'false');
+    if (typeof window !== "undefined") {
+      localStorage.setItem("chat_darkmode", darkMode ? "true" : "false");
     }
   }, [darkMode]);
 
-  // --- Focus input on open/maximize
+  // Focus input on open/maximize
   useEffect(() => {
-    if (!minimized) {
+    if (!minimized && isOpen) {
       setTimeout(() => { inputRef.current?.focus(); }, 200);
     }
-  }, [minimized, showEmojiPicker]);
+  }, [minimized, isOpen, showEmojiPicker]);
 
-  // --- Keyboard Shortcuts
+  // Keyboard Shortcuts
   useEffect(() => {
     const handler = (e) => {
-      // ↑ Arrow to edit last user message
       if (e.key === "ArrowUp" && !inputText && messages.length > 0) {
         const lastUserMsg = [...messages].reverse().find(m => m.sender === 'user');
         if (lastUserMsg) {
@@ -72,19 +71,21 @@ export default function ChatWidget({ onClose }) {
           setEditing(true);
         }
       }
-      // Ctrl+Enter or Enter to send
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.shiftKey && isOpen && !minimized) {
         if (document.activeElement === inputRef.current) {
           e.preventDefault();
           handleSubmit();
         }
+      }
+      if (e.key === "Escape" && isOpen) {
+        setIsOpen(false);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   });
 
-  // --- Text-to-speech (bot)
+  // Text-to-speech (bot)
   const speak = (text) => {
     if ('speechSynthesis' in window) {
       const utter = new window.SpeechSynthesisUtterance(text);
@@ -94,13 +95,13 @@ export default function ChatWidget({ onClose }) {
     }
   };
 
-  // --- Sound notification (on bot/user message)
+  // Sound notification
   const playSound = () => {
     const snd = document.getElementById('chatSound');
-    if (snd) { snd.currentTime = 0; snd.play(); }
+    if (snd) { snd.currentTime = 0; snd.play().catch(() => {}); }
   };
 
-  // --- Clear conversation
+  // Clear conversation
   const clearChat = () => {
     setMessages([]);
     setInputText('');
@@ -110,23 +111,21 @@ export default function ChatWidget({ onClose }) {
     }
   };
 
-  // --- Minimize chat
-  const handleMinimize = () => {
-    setMinimized(true);
-  };
+  // Minimize/Expand
+  const handleMinimize = () => setMinimized(true);
   const handleExpand = () => {
     setMinimized(false);
     setTimeout(() => inputRef.current?.focus(), 150);
   };
 
-  // --- Emoji insert
+  // Emoji insert
   const insertEmoji = (emoji) => {
     setInputText(inputText + emoji);
     setShowEmojiPicker(false);
     inputRef.current?.focus();
   };
 
-  // --- Submit
+  // Send message
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (!inputText && !inputImage) return;
@@ -155,7 +154,6 @@ export default function ChatWidget({ onClose }) {
     formData.append('query', inputText);
     if (inputImage) formData.append('image', inputImage);
 
-    // Loading placeholder
     setTimeout(async () => {
       try {
         const res = await fetch(`${API_URL}/chat`, { method: 'POST', body: formData });
@@ -173,7 +171,7 @@ export default function ChatWidget({ onClose }) {
           setLoading(false);
           playSound();
           speak(data.message || '');
-        }, 700); // Typing animation delay
+        }, 700);
       } catch (err) {
         setMessages(prev => [...prev, {
           sender: 'bot',
@@ -186,27 +184,39 @@ export default function ChatWidget({ onClose }) {
         setLoading(false);
         playSound();
       }
-    }, 500); // Show shimmer placeholder
+    }, 500);
     setInputText('');
     setInputImage(null);
   };
 
-  // --- Loading placeholder (shimmer)
+  // Loading placeholder (shimmer)
   const renderLoading = () => (
     <div className={styles.botMsg}>
       <div className={`${styles.botBubble} ${styles.shimmer}`}></div>
     </div>
   );
 
+  // Floating FAB
+  if (!isOpen) {
+    return (
+      <>
+        <button className={styles.fabChatOpen} onClick={() => setIsOpen(true)} title="Open chat">
+          💬
+        </button>
+        <audio id="chatSound" src={NOTIF_SOUND} preload="auto"></audio>
+      </>
+    );
+  }
+
   return (
     <div className={`${styles.widgetContainer} ${darkMode ? styles.dark : ''}`}>
-      <audio id="chatSound" src="/notification.mp3" preload="auto"></audio>
+      <audio id="chatSound" src={NOTIF_SOUND} preload="auto"></audio>
       <div className={styles.header}>
         <span style={{display: 'flex', alignItems: 'center'}}>
           <span className={styles.avatar}>
             <img src={BOT_AVATAR} alt="bot" width="32" height="32" style={{borderRadius: '50%'}} />
           </span>
-          AI Chatbot
+          AI Assistant
         </span>
         <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
           <button className={styles.iconBtn} title="Dark mode" onClick={() => setDarkMode(dm => !dm)}>
@@ -214,7 +224,7 @@ export default function ChatWidget({ onClose }) {
           </button>
           <button className={styles.iconBtn} title="Minimize" onClick={handleMinimize}>🗕</button>
           <button className={styles.iconBtn} title="Clear chat" onClick={clearChat}>🗑️</button>
-          <button className={styles.closeButton} onClick={onClose} title="Close">✖</button>
+          <button className={styles.closeButton} onClick={() => setIsOpen(false)} title="Close">✖</button>
         </div>
       </div>
       {!minimized && (
@@ -268,7 +278,7 @@ export default function ChatWidget({ onClose }) {
           )}
           <input 
             type="text"
-            placeholder={editing ? "Edit your last message..." : "Type your query..."}
+            placeholder={editing ? "Edit your last message..." : "Type your message..."}
             value={inputText}
             ref={inputRef}
             onChange={e => setInputText(e.target.value)}
