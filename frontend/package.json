@@ -1,6 +1,6 @@
 {
-  "name": "chatbot-frontend",
-  "version": "1.0.0",
+  "name": "multimodal-chatbot-frontend",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
@@ -10,12 +10,26 @@
     "export": "next export"
   },
   "dependencies": {
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
+    "formidable": "^3.5.4",
+    "framer-motion": "^10.18.0",
     "next": "^14.0.0",
+    "prism-react-renderer": "^2.4.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-dropzone": "^14.3.8",
+    "react-syntax-highlighter": "^15.6.1",
+    "recharts": "^2.15.3",
+    "three": "^0.157.0"
   },
   "devDependencies": {
+    "@svgr/webpack": "^8.1.0",
+    "critters": "^0.0.23",
     "eslint": "^8.50.0",
-    "eslint-config-next": "^14.0.0"
+    "eslint-config-next": "^14.0.0",
+    "file-loader": "^6.2.0",
+    "glslify-loader": "^2.0.0",
+    "raw-loader": "^4.0.2"
   }
 }
