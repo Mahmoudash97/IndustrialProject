@@ -1,33 +1,35 @@
 // /frontend/components/ChatMessage.js
-
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { tomorrow } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import styles from '../styles/ChatWidget.module.css';
 
-/**
- * Helper: Render message content safely as string.
- * Handles string, object with .content, or array of such objects.
- */
 function getTextContent(text) {
   if (typeof text === 'string') return text;
   if (Array.isArray(text)) {
-    // If it's an array of message objects, join their content
     return text.map(getTextContent).join(' ');
   }
   if (typeof text === 'object' && text !== null) {
-    // If it's a message object with .content
     if ('content' in text) return String(text.content);
-    return JSON.stringify(text); // fallback
+    return JSON.stringify(text);
   }
   return '';
 }
 
-export default function ChatMessage({ sender, text, images, timestamp, avatar, sources, animate, index }) {
+export default function ChatMessage({ 
+  sender, 
+  text, 
+  images, 
+  timestamp, 
+  avatar, 
+  sources, 
+  locations, 
+  animate, 
+  index 
+}) {
   const isUser = sender === 'user';
   const [showReactions, setShowReactions] = useState(false);
   const [selectedReaction, setSelectedReaction] = useState(null);
+  const [expandedLocation, setExpandedLocation] = useState(null);
   
   const bubbleClass = isUser ? styles.userBubble : styles.botBubble;
   const containerClass = isUser ? styles.userMsg : styles.botMsg;
@@ -63,65 +65,71 @@ export default function ChatMessage({ sender, text, images, timestamp, avatar, s
     }
   };
 
-  // Improved renderText to handle only string input
   const renderText = (rawText) => {
     const safeText = getTextContent(rawText);
-
-    // Code block regex for ``````
-    const codeBlockRegex = /``````/g;
-    const parts = [];
-    let lastIndex = 0;
-    let match;
-
-    while ((match = codeBlockRegex.exec(safeText)) !== null) {
-      // Add text before code block
-      if (match.index > lastIndex) {
-        parts.push(
-          <span key={lastIndex}>{safeText.slice(lastIndex, match.index)}</span>
-        );
-      }
-
-      // Add code block
-      const language = match[1] || 'javascript';
-      const code = match[2].trim();
-      parts.push(
-        <motion.div 
-          key={match.index}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <SyntaxHighlighter
-            language={language}
-            style={tomorrow}
-            customStyle={{
-              margin: '10px 0',
-              borderRadius: '8px',
-              fontSize: '14px'
-            }}
-          >
-            {code}
-          </SyntaxHighlighter>
-        </motion.div>
-      );
-
-      lastIndex = match.index + match[0].length;
-    }
-
-    // Add remaining text
-    if (lastIndex < safeText.length) {
-      parts.push(
-        <span key={lastIndex}>{safeText.slice(lastIndex)}</span>
-      );
-    }
-
-    return parts.length > 0 ? parts : safeText;
+    return safeText;
   };
 
   const handleReaction = (reaction) => {
     setSelectedReaction(reaction);
     setShowReactions(false);
-    // Here you could send the reaction to your backend
+  };
+
+  const renderLocationCards = () => {
+    if (!locations || locations.length === 0) return null;
+
+    return (
+      <motion.div 
+        className={styles.locationResults}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+      >
+        <h4>Found Locations:</h4>
+        <div className={styles.locationGrid}>
+          {locations.map((location, idx) => (
+            <motion.div
+              key={location.id}
+              className={styles.locationCard}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.4 + idx * 0.1 }}
+              whileHover={{ scale: 1.03 }}
+              onClick={() => setExpandedLocation(expandedLocation === location.id ? null : location.id)}
+            >
+              <div className={styles.locationHeader}>
+                <h5>{location.location}</h5>
+                <span className={styles.similarity}>
+                  {Math.round(location.score * 100)}% match
+                </span>
+              </div>
+              <p className={styles.locationDescription}>
+                {location.description}
+              </p>
+              {location.features && location.features.length > 0 && (
+                <div className={styles.features}>
+                  {location.features.slice(0, 3).map((feature, featureIdx) => (
+                    <span key={featureIdx} className={styles.featureTag}>
+                      {feature}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {expandedLocation === location.id && (
+                <motion.div 
+                  className={styles.expandedDetails}
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                >
+                  <p><strong>Image Path:</strong> {location.image_path}</p>
+                  <p><strong>All Features:</strong> {location.features.join(', ')}</p>
+                </motion.div>
+              )}
+            </motion.div>
+          ))}
+        </div>
+      </motion.div>
+    );
   };
 
   return (
@@ -179,6 +187,8 @@ export default function ChatMessage({ sender, text, images, timestamp, avatar, s
             <img src={src} alt="chat-img" className={styles.image} />
           </motion.div>
         ))}
+
+        {renderLocationCards()}
         
         {sources && sources.length > 0 && (
           <motion.div 
@@ -202,7 +212,6 @@ export default function ChatMessage({ sender, text, images, timestamp, avatar, s
         
         <span className={tailClass}></span>
         
-        {/* Reaction System */}
         {!isUser && (
           <>
             {showReactions && (
