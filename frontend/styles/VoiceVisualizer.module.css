@@ -1,0 +1,16 @@
+/* /frontend/styles/VoiceVisualizer.module.css */
+
+.visualizer {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  margin-left: 8px;
+}
+
+.bar {
+  width: 3px;
+  background: linear-gradient(to top, #667eea, #764ba2);
+  border-radius: 2px;
+  min-height: 4px;
+}

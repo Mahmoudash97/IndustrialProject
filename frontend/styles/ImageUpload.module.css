@@ -1,0 +1,127 @@
+/* /frontend/styles/ImageUpload.module.css */
+
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(5px);
+}
+
+.modal {
+  background: var(--chat-bg);
+  border-radius: var(--radius);
+  padding: 0;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  border: var(--chat-border);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: white;
+}
+
+.header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.header button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.2s ease;
+}
+
+.header button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dropzone {
+  margin: 20px;
+  border: 2px dashed #ccc;
+  border-radius: 12px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: rgba(102, 126, 234, 0.02);
+}
+
+.dropzone:hover,
+.dropzone.active {
+  border-color: var(--primary);
+  background: rgba(102, 126, 234, 0.05);
+}
+
+.dropContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon {
+  font-size: 3rem;
+  opacity: 0.6;
+}
+
+.dropzone p {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #333;
+  font-weight: 500;
+}
+
+.dropzone small {
+  color: #666;
+  margin-top: 8px;
+}
+
+.dark .modal {
+  background: var(--chat-dark-bg);
+  border: var(--chat-dark-border);
+}
+
+.dark .dropzone {
+  border-color: #555;
+  background: rgba(59, 130, 246, 0.02);
+}
+
+.dark .dropzone:hover,
+.dark .dropzone.active {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.dark .dropzone p {
+  color: #e2e8f0;
+}
+
+.dark .dropzone small {
+  color: #cbd5e1;
+}
