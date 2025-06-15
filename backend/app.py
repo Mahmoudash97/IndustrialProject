@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from llama_index_service import query_engine, sanitize_text
+from llama_index_service import LocationSearchService, query_engine, location_service
 import logging
 import logging.config
 import asyncio
@@ -10,6 +10,9 @@ import os
 from datetime import datetime
 from typing import Optional, List
 from pathlib import Path
+import io
+from PIL import Image
+
 
 # Configure structured logging
 try:
@@ -79,68 +82,48 @@ def get_allowed_file_types():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(
-    request: ChatRequest = None, 
-    query: str = Form(None), 
+    request: ChatRequest = None,
+    query: str = Form(None),
     image: UploadFile = File(None)
 ):
-    """
-    Main chat endpoint supporting both JSON and multipart form data.
-    Accepts text queries and optional image uploads.
-    """
+    """Enhanced chat endpoint with location search integration."""
     try:
-        # Accept both JSON and multipart/form-data for flexibility
         user_query = request.query if request else query
-        session_id = request.session_id if request else None
+        session_id = request.session_id if request else str(uuid.uuid4())
         
         if not user_query:
             raise HTTPException(status_code=400, detail="Query cannot be empty")
         
-        # Generate unique message ID
         message_id = str(uuid.uuid4())
-        logger.info(f"Processing chat request: {message_id[:8]}...")
+        logger.info(f"Processing chat request: {message_id[:8]}... Session: {session_id[:8]}")
         
         # Handle image if provided
-        image_info = None
+        pil_image = None
         if image:
             if image.size > get_max_file_size():
                 raise HTTPException(status_code=413, detail="File too large")
-            
             if image.content_type not in get_allowed_file_types():
                 raise HTTPException(status_code=400, detail="Unsupported file type")
             
-            image_info = {
-                "filename": image.filename,
-                "size": image.size,
-                "type": image.content_type
-            }
-            logger.info(f"Image uploaded: {image.filename} ({image.size} bytes)")
+            # Convert uploaded image to PIL Image
+            image_content = await image.read()
+            pil_image = Image.open(io.BytesIO(image_content)).convert("RGB")
+            logger.info(f"Image processed: {image.filename}")
         
-        # Sanitize input to remove emojis for processing
-        sanitized = sanitize_text(user_query)
-        
-        # Add artificial delay for realistic typing experience
-        await asyncio.sleep(0.5)
-        
-        # Query the engine
+        # Process with conversational bot
         if query_engine is None:
-            raise HTTPException(status_code=503, detail="Query engine not available")
+            raise HTTPException(status_code=503, detail="Location service not available")
         
-        response = query_engine.query(sanitized)
+        response_text = query_engine.process_message(user_query, session_id, pil_image)
         
-        # Format response
-        response_text = str(response).strip()
-        if not response_text:
-            response_text = "I apologize, but I couldn't generate a proper response to your query."
+        # Get current session state for metadata
+        if location_service:
+            state = location_service.get_conversation_state(session_id)
+            sources = [f"location_{result['location_id']}" for result in state.get('search_results', [])]
+        else:
+            sources = []
         
-        # Extract sources
-        sources = []
-        if hasattr(response, 'source_nodes') and response.source_nodes:
-            sources = [
-                node.metadata.get("filename", "unknown") 
-                for node in response.source_nodes
-            ]
-        
-        logger.info(f"Response generated for {message_id[:8]} with {len(sources)} sources")
+        logger.info(f"Response generated for {message_id[:8]} with {len(sources)} location sources")
         
         return ChatResponse(
             message=response_text,
@@ -160,8 +143,10 @@ async def chat(
             sources=[],
             message_id=str(uuid.uuid4()),
             timestamp=datetime.now().isoformat(),
-            status="error"
+            status="error",
+            session_id=session_id
         )
+
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload_file(file: UploadFile = File(...)):
