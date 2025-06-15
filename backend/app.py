@@ -82,21 +82,20 @@ def get_allowed_file_types():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(
-    request: ChatRequest = None,
-    query: str = Form(None),
-    image: UploadFile = File(None)
+    query: str = Form(...),
+    session_id: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None)
 ):
     """Enhanced chat endpoint with location search integration."""
     try:
-        user_query = request.query if request else query
-        session_id = request.session_id if request else str(uuid.uuid4())
-        
-        if not user_query:
+        if not query:
             raise HTTPException(status_code=400, detail="Query cannot be empty")
-        
+
+        # Use provided session_id or generate a new one
+        session_id = session_id or str(uuid.uuid4())
         message_id = str(uuid.uuid4())
-        logger.info(f"Processing chat request: {message_id[:8]}... Session: {session_id[:8]}")
-        
+        logging.info(f"Processing chat request: {message_id[:8]}... Session: {session_id[:8]}")
+
         # Handle image if provided
         pil_image = None
         if image:
@@ -104,27 +103,25 @@ async def chat(
                 raise HTTPException(status_code=413, detail="File too large")
             if image.content_type not in get_allowed_file_types():
                 raise HTTPException(status_code=400, detail="Unsupported file type")
-            
-            # Convert uploaded image to PIL Image
             image_content = await image.read()
             pil_image = Image.open(io.BytesIO(image_content)).convert("RGB")
-            logger.info(f"Image processed: {image.filename}")
-        
+            logging.info(f"Image processed: {image.filename}")
+
         # Process with conversational bot
         if query_engine is None:
             raise HTTPException(status_code=503, detail="Location service not available")
-        
-        response_text = query_engine.process_message(user_query, session_id, pil_image)
-        
+
+        response_text = query_engine.process_message(query, session_id, pil_image)
+
         # Get current session state for metadata
         if location_service:
             state = location_service.get_conversation_state(session_id)
             sources = [f"location_{result['location_id']}" for result in state.get('search_results', [])]
         else:
             sources = []
-        
-        logger.info(f"Response generated for {message_id[:8]} with {len(sources)} location sources")
-        
+
+        logging.info(f"Response generated for {message_id[:8]} with {len(sources)} location sources")
+
         return ChatResponse(
             message=response_text,
             sources=sources,
@@ -133,11 +130,11 @@ async def chat(
             status="delivered",
             session_id=session_id
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Chat error: {str(e)}", exc_info=True)
+        logging.error(f"Chat error: {str(e)}", exc_info=True)
         return ChatResponse(
             message="I apologize, but I'm experiencing technical difficulties. Please try again.",
             sources=[],
@@ -146,7 +143,6 @@ async def chat(
             status="error",
             session_id=session_id
         )
-
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload_file(file: UploadFile = File(...)):

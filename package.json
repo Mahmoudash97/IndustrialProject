@@ -19,7 +19,17 @@
   "devDependencies": {
     "concurrently": "^8.2.2"
   },
-  "keywords": ["nextjs", "fastapi", "ai", "chatbot", "rag", "llama"],
+  "keywords": [
+    "nextjs",
+    "fastapi",
+    "ai",
+    "chatbot",
+    "rag",
+    "llama"
+  ],
   "author": "Your Name",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "uuid": "^11.1.0"
+  }
 }

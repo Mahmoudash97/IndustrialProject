@@ -1,7 +1,11 @@
 # Enhanced llama_index_service.py
 import torch
+import numpy as np
+from pathlib import Path
+from datetime import datetime
 from transformers import CLIPProcessor, CLIPModel
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient, models
+from transformers import AutoProcessor, AutoModel
 from PIL import Image
 import json
 import logging
@@ -9,10 +13,16 @@ from enum import Enum
 from typing import Dict, List, Optional, Any
 import re
 import io
+import hashlib
 from llama_index.llms.ollama import Ollama
 
 
 logger = logging.getLogger(__name__)
+
+# Configuration
+MODEL_NAME = "qihoo360/fg-clip-large"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 class ConversationState(Enum):
     GREETING = "greeting"
@@ -23,126 +33,108 @@ class ConversationState(Enum):
 
 class LocationSearchService:
     def __init__(self):
-        # Initialize CLIP model for embeddings
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        self.model.to(self.device)
-        
         # Initialize Qdrant client
         self.qdrant_client = QdrantClient(url="http://localhost:6333")
         self.collection_name = "film_locations"
-        
-        # Conversation state management
         self.conversation_states: Dict[str, Dict[str, Any]] = {}
+
+        # Initialize FG-CLIP model
+        self.processor = AutoProcessor.from_pretrained(MODEL_NAME)
+        self.model = AutoModel.from_pretrained(MODEL_NAME).to(DEVICE).eval()
         
         logger.info("LocationSearchService initialized successfully")
     
-    def text_to_embedding(self, text: str) -> List[float]:
-        """Convert text to CLIP embedding vector."""
+    def text_to_embedding(self, text: str) -> np.ndarray:
+        """Convert text to embedding using FG-CLIP"""
         with torch.no_grad():
-            text_inputs = self.processor(text=text, return_tensors="pt", padding=True)
-            text_inputs = {k: v.to(self.device) for k, v in text_inputs.items()}
-            text_features = self.model.get_text_features(**text_inputs)
-            query_embedding = torch.nn.functional.normalize(text_features, dim=-1)
-            return query_embedding[0].cpu().numpy().tolist()
+            inputs = self.processor(text=[text], return_tensors="pt", padding=True)
+            inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
+            features = self.model.get_text_features(**inputs)
+            features = torch.nn.functional.normalize(features, dim=-1)
+            return features.cpu().numpy()[0]
     
-    def image_to_embedding(self, image: Image.Image) -> List[float]:
-        """Convert image to CLIP embedding vector."""
+    def image_to_embedding(self, image: Image.Image) -> np.ndarray:
+        """Convert image to embedding using FG-CLIP"""
         with torch.no_grad():
-            image_inputs = self.processor(images=image, return_tensors="pt")
-            image_inputs = {k: v.to(self.device) for k, v in image_inputs.items()}
-            image_features = self.model.get_image_features(**image_inputs)
-            query_embedding = torch.nn.functional.normalize(image_features, dim=-1)
-            return query_embedding[0].cpu().numpy().tolist()
-    
-    def search_locations(self, query_embedding: List[float], top_k: int = 5) -> List[Dict]:
-        """Search for similar locations using vector similarity."""
+            inputs = self.processor(images=[image], return_tensors="pt", padding=True)
+            inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
+            features = self.model.get_image_features(**inputs)
+            features = torch.nn.functional.normalize(features, dim=-1)
+            return features.cpu().numpy()[0]
+
+    def search_locations(self, query_embedding: np.ndarray, top_k: int = 5) -> List[Dict]:
+        """Search for similar locations in Qdrant"""
         try:
-            results = self.qdrant_client.search(
+            search_results = self.qdrant_client.search(
                 collection_name=self.collection_name,
-                query_vector=query_embedding,
-                limit=top_k
+                query_vector=query_embedding.tolist(),
+                limit=top_k,
+                with_payload=True
             )
             
-            return [{
-                "score": hit.score,
-                "image_path": hit.payload.get("image_path", ""),
-                "location_id": hit.payload.get("location_id", ""),
-                "description": hit.payload.get("description", ""),
-                "features": hit.payload.get("features", []),
-                "location_type": hit.payload.get("location_type", "")
-            } for hit in results]
+            results = []
+            for result in search_results:
+                results.append({
+                    "location_id": result.payload["location_id"],
+                    "image_path": result.payload["image_path"],
+                    "similarity_score": result.score,
+                    "point_id": result.id
+                })
+            
+            logger.info(f"Found {len(results)} similar locations")
+            return results
+            
         except Exception as e:
             logger.error(f"Error searching locations: {e}")
             return []
     
     def get_conversation_state(self, session_id: str) -> Dict[str, Any]:
-        """Get or create conversation state for session."""
+        """Get conversation state for a session"""
         if session_id not in self.conversation_states:
             self.conversation_states[session_id] = {
                 "state": ConversationState.GREETING,
                 "requirements": [],
-                "last_query": "",
-                "search_results": []
+                "search_results": [],
+                "last_query": ""
             }
         return self.conversation_states[session_id]
     
     def update_conversation_state(self, session_id: str, updates: Dict[str, Any]):
-        """Update conversation state."""
+        """Update conversation state"""
         state = self.get_conversation_state(session_id)
         state.update(updates)
     
     def extract_requirements(self, text: str) -> List[str]:
-        """Extract location requirements from user text."""
-        # Simple keyword extraction - you can enhance this with NLP
-        keywords = [
-            "outdoor", "indoor", "nature", "urban", "modern", "vintage", 
-            "mountain", "beach", "forest", "city", "studio", "warehouse",
-            "bright", "dark", "spacious", "cozy", "industrial", "rustic"
-        ]
-        
+        """Extract location requirements from user text"""
         requirements = []
         text_lower = text.lower()
         
-        for keyword in keywords:
+        # Location types
+        location_keywords = {
+            "mountain": "mountainous area",
+            "beach": "coastal/beach location",
+            "city": "urban environment",
+            "forest": "forest/woodland",
+            "desert": "desert landscape",
+            "lake": "lakeside location",
+            "indoor": "indoor setting",
+            "outdoor": "outdoor setting",
+            "modern": "modern architecture",
+            "historic": "historical building",
+            "rustic": "rustic/rural setting"
+        }
+        
+        for keyword, description in location_keywords.items():
             if keyword in text_lower:
-                requirements.append(keyword)
+                requirements.append(description)
         
-        # Extract other descriptive phrases
-        phrases = re.findall(r'\b(?:with|looking for|need|want)\s+([^.!?]+)', text_lower)
-        requirements.extend([phrase.strip() for phrase in phrases])
-        
-        return list(set(requirements))  # Remove duplicates
+        return requirements
     
     def build_search_query(self, requirements: List[str]) -> str:
-        """Build optimized search query from requirements."""
+        """Build search query from requirements"""
         if not requirements:
-            return "filming location photoshoot space"
-        
-        # Combine requirements into a natural search query
-        query_parts = []
-        
-        # Add location type descriptors
-        location_types = [req for req in requirements if req in ["outdoor", "indoor", "studio"]]
-        if location_types:
-            query_parts.extend(location_types)
-        
-        # Add environment descriptors
-        environments = [req for req in requirements if req in ["nature", "urban", "mountain", "beach", "forest", "city"]]
-        if environments:
-            query_parts.extend(environments)
-        
-        # Add style descriptors
-        styles = [req for req in requirements if req in ["modern", "vintage", "industrial", "rustic"]]
-        if styles:
-            query_parts.extend(styles)
-        
-        # Add remaining requirements
-        other_reqs = [req for req in requirements if req not in query_parts]
-        query_parts.extend(other_reqs)
-        
-        return " ".join(query_parts) + " filming location photoshoot space"
+            return "beautiful filming location"
+        return f"filming location with {', '.join(requirements)}"
 
 # Enhanced system prompt for conversational flow
 LOCATION_FINDER_SYSTEM_PROMPT = """You are a helpful location finder assistant for a filming and photoshoot location service. Your role is to help users find the perfect location for their needs.
@@ -166,7 +158,7 @@ class ConversationalLocationBot:
     def __init__(self, location_service: LocationSearchService):
         self.location_service = location_service
         self.llm = Ollama(
-            model="llama3",
+            model="tinyllama",
             temperature=0.7,
             request_timeout=60.0
         )
@@ -175,11 +167,12 @@ class ConversationalLocationBot:
         """Process user message and return appropriate response."""
         try:
             state = self.location_service.get_conversation_state(session_id)
+            print("session_id:", session_id)
             current_state = state["state"]
             user_input_lower = user_input.lower()
             
             # Handle greeting/initial state
-            if current_state == ConversationState.GREETING or any(greeting in user_input_lower for greeting in ["hi", "hello", "hey", "start"]):
+            if current_state == ConversationState.GREETING:
                 self.location_service.update_conversation_state(session_id, {
                     "state": ConversationState.COLLECTING_REQUIREMENTS
                 })
@@ -261,31 +254,28 @@ class ConversationalLocationBot:
             return "I apologize, but I'm experiencing technical difficulties. Please try again or start a new search."
     
     def _format_search_results(self, results: List[Dict], search_type: str) -> str:
-        """Format search results for user presentation."""
         if not results:
             return "I couldn't find any locations matching your requirements. Would you like to try with different criteria or start a new search?"
-        
+
         response = f"Great! I found {len(results)} locations based on your {search_type} search:\n\n"
-        
+
         for i, result in enumerate(results, 1):
-            score_percentage = int(result['score'] * 100)
+            score_percentage = int(result['similarity_score'] * 100)  # Use the correct key
             response += f"**Location {i}** (Match: {score_percentage}%)\n"
-            response += f"• ID: {result['location_id']}\n"
-            
+            response += f"• ID: {result['location_id']} in {result['image_path']}\n"
+            # Only include optional fields if present
             if result.get('description'):
                 response += f"• Description: {result['description']}\n"
-            
             if result.get('location_type'):
                 response += f"• Type: {result['location_type']}\n"
-            
             if result.get('features'):
-                features = result['features'][:3]  # Limit to top 3 features
+                features = result['features'][:3]
                 response += f"• Features: {', '.join(features)}\n"
-            
             response += "\n"
-        
+
         response += "Would you like more details about any of these locations, or would you like to search for something different?"
         return response
+
 
 # Initialize global services
 try:
