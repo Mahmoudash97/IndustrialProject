@@ -34,7 +34,13 @@ class ConversationState(Enum):
 class LocationSearchService:
     def __init__(self):
         # Initialize Qdrant client
-        self.qdrant_client = QdrantClient(url="http://localhost:6333")
+        from qdrant_client import QdrantClient
+
+        self.qdrant_client = QdrantClient(
+            url="https://cfd9b2d8-fc05-42a9-a872-8c3d26d0c400.eu-central-1-0.aws.cloud.qdrant.io:6333", 
+            api_key="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.mxDtOqWAzg6CtZqBdzl6nbUAMkH8rKsExwL-EKbLRf8"
+        )
+
         self.collection_name = "film_locations"
         self.conversation_states: Dict[str, Dict[str, Any]] = {}
 
@@ -94,6 +100,7 @@ class LocationSearchService:
             self.conversation_states[session_id] = {
                 "state": ConversationState.GREETING,
                 "requirements": [],
+                "all_user_inputs": [],
                 "search_results": [],
                 "last_query": ""
             }
@@ -103,38 +110,16 @@ class LocationSearchService:
         """Update conversation state"""
         state = self.get_conversation_state(session_id)
         state.update(updates)
-    
-    def extract_requirements(self, text: str) -> List[str]:
-        """Extract location requirements from user text"""
-        requirements = []
-        text_lower = text.lower()
-        
-        # Location types
-        location_keywords = {
-            "mountain": "mountainous area",
-            "beach": "coastal/beach location",
-            "city": "urban environment",
-            "forest": "forest/woodland",
-            "desert": "desert landscape",
-            "lake": "lakeside location",
-            "indoor": "indoor setting",
-            "outdoor": "outdoor setting",
-            "modern": "modern architecture",
-            "historic": "historical building",
-            "rustic": "rustic/rural setting"
-        }
-        
-        for keyword, description in location_keywords.items():
-            if keyword in text_lower:
-                requirements.append(description)
-        
-        return requirements
+
     
     def build_search_query(self, requirements: List[str]) -> str:
         """Build search query from requirements"""
         if not requirements:
             return "beautiful filming location"
         return f"filming location with {', '.join(requirements)}"
+    
+    
+
 
 # Enhanced system prompt for conversational flow
 LOCATION_FINDER_SYSTEM_PROMPT = """You are a helpful location finder assistant for a filming and photoshoot location service. Your role is to help users find the perfect location for their needs.
@@ -158,97 +143,106 @@ class ConversationalLocationBot:
     def __init__(self, location_service: LocationSearchService):
         self.location_service = location_service
         self.llm = Ollama(
-            model="tinyllama",
+            model="llama2",
             temperature=0.7,
-            request_timeout=60.0
+            request_timeout=120.0
         )
+
+    def detect_confirmation_with_llm(self, chat_history: str, last_user_message: str) -> bool:
+        prompt = (
+            "You are a helpful assistant for a location search service. "
+            "Based on the conversation so far and the user's latest message, does the user confirm they are done providing requirements? "
+            "Respond with only 'yes' or 'no'.\n\n"
+            f"Conversation so far:\n{chat_history}\n"
+            f"User's latest message: {last_user_message}\n"
+            "Confirmation:"
+        )
+        response = self.llm.complete(prompt)
+        return response.text.strip().lower().startswith("yes")
+    
+    def extract_and_rewrite_requirements_with_llm(self, chat_history: str) -> str:
+        prompt = (
+            "You are a helpful assistant for a location search service. "
+            "Based on the conversation so far, extract all the user's requirements for a filming or photoshoot location, "
+            "and rewrite them as a single, concise search query.\n\n"
+            f"Conversation so far:\n{chat_history}\n"
+            "Search query:"
+        )
+        response = self.llm.complete(prompt)
+        return response.text.strip()
     
     def process_message(self, user_input: str, session_id: str, image: Optional[Image.Image] = None) -> str:
-        """Process user message and return appropriate response."""
         try:
             state = self.location_service.get_conversation_state(session_id)
             print("session_id:", session_id)
             current_state = state["state"]
-            user_input_lower = user_input.lower()
-            
-            # Handle greeting/initial state
+
+            # Append every user message to chat history
+            state.setdefault("chat_history", []).append({"role": "user", "content": user_input})
+
+            # Prepare chat history for LLM (last 8 turns for brevity)
+            chat_history = "\n".join(
+                [f"{msg['role'].capitalize()}: {msg['content']}" for msg in state["chat_history"][-8:]]
+            )
+
             if current_state == ConversationState.GREETING:
                 self.location_service.update_conversation_state(session_id, {
                     "state": ConversationState.COLLECTING_REQUIREMENTS
                 })
-                return "Hello! Welcome to our location finder service. I'm here to help you find the perfect filming or photoshoot location. What type of location are you looking for? Please describe your vision - indoor or outdoor, the style or mood you want, any specific features you need, etc."
-            
-            # Handle requirement collection
-            elif current_state == ConversationState.COLLECTING_REQUIREMENTS:
-                new_requirements = self.location_service.extract_requirements(user_input)
-                state["requirements"].extend(new_requirements)
-                
-                self.location_service.update_conversation_state(session_id, {
-                    "state": ConversationState.CONFIRMING_REQUIREMENTS,
-                    "requirements": list(set(state["requirements"]))  # Remove duplicates
+                state["chat_history"].append({"role": "assistant", "content":
+                    "Hello! Welcome to our location finder service. What type of location are you looking for? Please describe your vision—indoor or outdoor, style, mood, or any specific features you need."
                 })
-                
-                requirements_text = ", ".join(state["requirements"]) if state["requirements"] else "your general requirements"
-                return f"Great! I understand you're looking for: {requirements_text}. Is that all you're looking for, or do you have any other specific requirements?"
-            
-            # Handle confirmation
+                return state["chat_history"][-1]["content"]
+
+            elif current_state == ConversationState.COLLECTING_REQUIREMENTS:
+                self.location_service.update_conversation_state(session_id, {
+                    "state": ConversationState.CONFIRMING_REQUIREMENTS
+                })
+                state["chat_history"].append({"role": "assistant", "content":
+                    "Great! Is that all you're looking for, or do you have any other specific requirements?"
+                })
+                return state["chat_history"][-1]["content"]
+
             elif current_state == ConversationState.CONFIRMING_REQUIREMENTS:
-                if any(confirm in user_input_lower for confirm in ["yes", "that's all", "that's it", "no more", "search", "find"]):
-                    # Perform search
-                    search_query = self.location_service.build_search_query(state["requirements"])
-                    
+                # LLM determines if user is confirming
+                is_confirm = self.detect_confirmation_with_llm(chat_history, user_input)
+                print(f"User Input: {user_input}")
+                print("------------------------------")
+                print(f"combined_requirements: {chat_history}")
+                print("------------------------------")
+                if is_confirm:
+                    # LLM rewrites all requirements into a search query
+                    search_query = self.extract_and_rewrite_requirements_with_llm(chat_history)
+                    print(f"Search Query: {search_query} END")
                     if image:
-                        # Image-based search
                         query_embedding = self.location_service.image_to_embedding(image)
                         search_type = "image and text"
                     else:
-                        # Text-based search
                         query_embedding = self.location_service.text_to_embedding(search_query)
                         search_type = "text"
-                    
                     results = self.location_service.search_locations(query_embedding, top_k=5)
-                    
                     self.location_service.update_conversation_state(session_id, {
                         "state": ConversationState.RESPONDING,
                         "search_results": results,
                         "last_query": search_query
                     })
-                    
                     return self._format_search_results(results, search_type)
-                
                 else:
-                    # Collect more requirements
-                    new_requirements = self.location_service.extract_requirements(user_input)
-                    state["requirements"].extend(new_requirements)
-                    
                     self.location_service.update_conversation_state(session_id, {
-                        "requirements": list(set(state["requirements"]))
+                        "state": ConversationState.CONFIRMING_REQUIREMENTS
                     })
-                    
-                    requirements_text = ", ".join(state["requirements"])
-                    return f"I've added those requirements. So now I have: {requirements_text}. Is that everything, or would you like to add more specific details?"
-            
-            # Handle follow-up questions or new searches
+                    state["chat_history"].append({"role": "assistant", "content":
+                        "I've added those requirements. Is that everything, or would you like to add more specific details?"
+                    })
+                    return state["chat_history"][-1]["content"]
+
             elif current_state == ConversationState.RESPONDING:
-                if any(new_search in user_input_lower for new_search in ["new search", "different", "other locations", "more options"]):
-                    self.location_service.update_conversation_state(session_id, {
-                        "state": ConversationState.GREETING,
-                        "requirements": [],
-                        "search_results": []
-                    })
-                    return "Of course! Let's start fresh. What type of location are you looking for this time?"
-                
-                else:
-                    # Use LLM for general conversation about the results
-                    context = f"Previous search results: {state['search_results'][:3]}"  # Limit context
-                    prompt = f"{LOCATION_FINDER_SYSTEM_PROMPT}\n\nContext: {context}\n\nUser: {user_input}\n\nAssistant:"
-                    
-                    response = self.llm.complete(prompt)
-                    return str(response).strip()
-            
-            # Default fallback
+                state["chat_history"].append({"role": "assistant", "content":
+                    "Is there anything specific you'd like to know about these locations, or would you like to search for different ones?"
+                })
+                return state["chat_history"][-1]["content"]
+
             return "I'm here to help you find locations! Please tell me what you're looking for, or say 'hi' to start over."
-            
         except Exception as e:
             logger.error(f"Error processing message: {e}")
             return "I apologize, but I'm experiencing technical difficulties. Please try again or start a new search."
@@ -261,7 +255,7 @@ class ConversationalLocationBot:
 
         for i, result in enumerate(results, 1):
             score_percentage = int(result['similarity_score'] * 100)  # Use the correct key
-            response += f"**Location {i}** (Match: {score_percentage}%)\n"
+            response += f"**Location {i}** (Link: https://studioscott.be/locaties/{result['location_id']}/%)\n"
             response += f"• ID: {result['location_id']} in {result['image_path']}\n"
             # Only include optional fields if present
             if result.get('description'):
