@@ -37,40 +37,19 @@ Frontend	React, Next.js	Interactive chatbot UI
 Backend	FastAPI (Python)	REST API, AI integration
 Database	Qdrant	Vector storage & similarity search
 Embeddings	open-clip-torch, SentenceTransformers	Image & text vectorization
-Conversational AI	Meta Llama 3, LlamaIndex	Natural language understanding
-Containerization	Docker	Database deployment
+Conversational AI	Meta Llama 3	Natural language understanding
 🚀 Quick Start
 Prerequisites
 
     Python 3.10+
 
     Node.js 18+
-
-    Docker
-
+    
     Git
 
 Installation
 
     Clone the repository
-
-bash
-git clone https://github.com/Mahmoudash97/IndustrialProject.git
-cd IndustrialProject
-
-Set up the vector database
-
-bash
-docker run -p 6333:6333 qdrant/qdrant
-
-Install and start backend
-
-bash
-cd backend
-conda create -n photochatbot python=3.10 -y
-conda activate photochatbot
-pip install -r requirements.txt
-uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 Install and start frontend
 
@@ -108,27 +87,6 @@ IndustrialProject/
 ├── package.json           # Root workspace configuration
 └── README.md              # This file
 
-🔧 Configuration
-Backend Environment (.env)
-
-text
-# Qdrant Configuration
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-QDRANT_COLLECTION_NAME=film_locations
-
-# AI Model Configuration
-EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
-LLM_MODEL=llama3
-
-# API Configuration
-API_HOST=0.0.0.0
-API_PORT=8000
-
-Frontend Environment (.env.local)
-
-text
-NEXT_PUBLIC_API_URL=http://localhost:8000
 
 🎯 Usage
 Text-Based Search
@@ -151,24 +109,6 @@ Combined Search
 
     Get results matching both criteria with weighted scoring
 
-🏢 Client Information
-
-Project: Intelligent Photo Search Chatbot
-Client: Studio Scott BV
-Purpose: Streamline photo collection search and discovery
-Industry: Film Production & Location Scouting
-🛠️ Development
-Key Features Implemented
-
-    Multimodal Embedding Generation - Text and image vectorization using state-of-the-art models
-
-    Semantic Similarity Search - Qdrant-powered vector database with cosine similarity
-
-    Conversational Interface - Natural language processing with context awareness
-
-    Real-time Chat Experience - Interactive UI with loading states and result visualization
-
-    Scalable Architecture - Modular design supporting future enhancements
 
 API Endpoints
 
@@ -180,13 +120,6 @@ API Endpoints
 
     GET /collections/info - Database statistics
 
-🚧 Known Limitations
-
-    Multi-criteria Queries - Complex multi-location searches need refinement
-
-    Output Formatting - Chat response presentation being enhanced
-
-    Hardware Requirements - GPU recommended for optimal performance
 
 📋 Requirements
 Python Dependencies
@@ -208,23 +141,6 @@ json
   "react": "latest",
   "framer-motion": "latest"
 }
-
-🤝 Contributing
-
-    Fork the repository
-
-    Create a feature branch
-
-    Commit your changes
-
-    Push to the branch
-
-    Create a Pull Request
-
-📄 License
-
-This project is developed for Studio Scott BV as part of an industrial collaboration.
-👥 Team
 
 Developers: Mahmoud and Badr
 Client: Studio Scott BV
